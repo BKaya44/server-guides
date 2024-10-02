@@ -2,6 +2,8 @@
 
 Step by step on how to configure VPS to host multiple domains, including static websites and Node.js applications.
 
+---
+
 ## **Overview**
 
 1. **Ensure server is up to date** making sure you have the latest version of your server.

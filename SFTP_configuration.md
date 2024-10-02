@@ -2,6 +2,8 @@
 
 Step-by-step guide on how to set up SFTP access to server, allowing the user `ftpuser00` to access the `/var/www/example.com/html` directory securely. This setup ensures that the user can only access the specified directory and cannot navigate to other parts of the server.
 
+---
+
 ## **Overview**
 
 1. **Create an SFTP group** for users who need SFTP access.
