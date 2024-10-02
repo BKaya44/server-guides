@@ -2,6 +2,16 @@
 
 Step by step on how to configure VPS to host multiple domains, including static websites and Node.js applications.
 
+## **Overview**
+
+1. **Ensure server is up to date** making sure you have the latest version of your server.
+2. **Install Nginx** Nginx is a commonly used HTTP web server.
+3. **Adjusting Firewall** to secure the server environment.
+4. **Configure DNS records** to redirect your domain to the correct server.
+5. **Setting up directories** to showcase your website on the correct domain.
+6. **Testing domain**.
+
+---
 ## **Step 1: Update and Upgrade Your Server**
 
 First, ensure your server is up to date.
@@ -393,16 +403,6 @@ Consider using deployment scripts or tools like **Ansible** for automation.
 ### **c. Monitor Your Server**
 
 Install tools like **htop**, **netdata**, or **Nagios** for monitoring.
-
----
-
-## **Summary**
-
-- **Nginx** is used to serve static websites and reverse proxy Node.js applications.
-- **Certbot** provides SSL certificates for secure HTTPS connections.
-- **PM2** manages Node.js processes, ensuring they run continuously.
-- **DNS Records** must point to your VPS for each domain you host.
-- **Server Blocks** in Nginx separate configurations for each domain.
 
 ---
 

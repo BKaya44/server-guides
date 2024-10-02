@@ -4,8 +4,6 @@ Step-by-step guide on how to set up SFTP access to server, allowing the user `ft
 
 ## **Overview**
 
-We will:
-
 1. **Create an SFTP group** for users who need SFTP access.
 2. **Create the user `ftpuser00`**, assign them to the SFTP group, and set their home directory.
 3. **Configure directory permissions** to secure the SFTP environment.
@@ -259,12 +257,6 @@ To add more users with similar access:
 - **Permission Denied Errors**: Check directory ownership and permissions. The chroot directory must be owned by `root:root` with `755` permissions.
 - **Cannot Access Subdirectories**: Ensure the user owns the subdirectories and has the necessary permissions.
 - **SSH Service Fails to Restart**: If there are syntax errors in `sshd_config`, the SSH service will fail to restart. Use `sudo sshd -t` to test the configuration before restarting.
-
----
-
-## **Conclusion**
-
-By following these steps, you've set up a secure SFTP environment that allows `ftpuser00` to access and manage files within the `/var/www/example.com/html` directory. This setup is scalable and can be extended to additional users and directories as needed.
 
 ---
 
