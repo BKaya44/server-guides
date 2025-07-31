@@ -1,277 +1,477 @@
-# SFTP configuration
+# Complete SFTP Server Configuration Guide
 
-Step-by-step guide on how to set up SFTP access to server, allowing the user `ftpuser00` to access the `/var/www/example.com/html` directory securely. This setup ensures that the user can only access the specified directory and cannot navigate to other parts of the server.
-
----
-
-## **Overview**
-
-1. **Create an SFTP group** for users who need SFTP access.
-2. **Create the user `ftpuser00`**, assign them to the SFTP group, and set their home directory.
-3. **Configure directory permissions** to secure the SFTP environment.
-4. **Modify the SSH configuration** to restrict SFTP users to their home directories.
-5. **Restart the SSH service** to apply changes.
-6. **Test the SFTP connection**.
+A comprehensive guide to securely configure SFTP access on your server, enabling restricted file access for web developers and content managers while maintaining robust security.
 
 ---
 
-## **Step 1: Create an SFTP Group**
+## Initial Setup
 
-Create a new group called `sftpusers` to manage all SFTP users.
+### Step 1: Create SFTP User Group
+
+Create a dedicated group for all SFTP users:
 
 ```bash
-sudo groupadd sftpusers
+sudo groupadd sftponly
 ```
+
+### Step 2: Verify OpenSSH Version
+
+Ensure you have a compatible OpenSSH version (5.2+):
+
+```bash
+ssh -V
+```
+
+If your version is older than 5.2, update OpenSSH before proceeding.
 
 ---
 
-## **Step 2: Create the User `ftpuser00`**
+## User Configuration
 
-Create a new user, assign them to the `sftpusers` group, and set their home directory to `/var/www/example.com`.
+### Step 3: Create SFTP User
+
+Create the user `ftpuser00` with secure defaults:
 
 ```bash
-sudo useradd -m -d /var/www/example.com -G sftpusers -s /usr/sbin/nologin ftpuser00
+# Create user with no shell access and custom home directory
+sudo useradd \
+  --create-home \
+  --home-dir /var/www/example.com \
+  --groups sftponly \
+  --shell /usr/sbin/nologin \
+  --comment "SFTP User for example.com" \
+  ftpuser00
 ```
 
-- **`-m`**: Creates the home directory if it doesn't exist.
-- **`-d`**: Specifies the user's home directory.
-- **`-G`**: Assigns the user to the specified group.
-- **`-s /usr/sbin/nologin`**: Disables shell access for security.
+**Parameter Explanation:**
+- `--create-home`: Creates the home directory if it doesn't exist
+- `--home-dir`: Sets custom home directory path
+- `--groups`: Adds user to the SFTP group
+- `--shell`: Disables shell access for security
+- `--comment`: Adds descriptive comment
 
-### **Set the User's Password**
+### Step 4: Set Strong Password
 
 ```bash
 sudo passwd ftpuser00
 ```
 
-Enter a strong password when prompted.
+**Password Requirements:**
+- Minimum 12 characters
+- Mix of uppercase, lowercase, numbers, and symbols
+- No dictionary words or personal information
 
----
+### Step 5: Configure Directory Structure and Permissions
 
-## **Step 3: Configure Directory Permissions**
+The chroot environment requires specific ownership and permissions:
 
-### **a. Set Ownership of the Chroot Directory**
-
-The chroot directory (`/var/www/example.com`) must be owned by `root` and not writable by any other user or group.
+#### Set Chroot Directory (Critical Security Step)
 
 ```bash
+# The chroot directory MUST be owned by root and not writable by others
 sudo chown root:root /var/www/example.com
 sudo chmod 755 /var/www/example.com
 ```
 
-### **b. Set Ownership of the `html` Directory**
-
-Grant ownership of the `html` directory to `ftpuser00` so they can read and write files.
+#### Configure Target Directory
 
 ```bash
-sudo chown ftpuser00:sftpusers /var/www/example.com/html
+# Create html directory if it doesn't exist
+sudo mkdir -p /var/www/example.com/html
+
+# Set appropriate ownership and permissions
+sudo chown ftpuser00:sftponly /var/www/example.com/html
 sudo chmod 755 /var/www/example.com/html
 ```
 
-### **Directory Structure and Permissions Recap**
+#### Create Additional Directories (Optional)
 
-- **`/var/www/example.com`**: Owned by `root:root` with `755` permissions.
-- **`/var/www/example.com/html`**: Owned by `ftpuser00:sftpusers` with `755` permissions.
+```bash
+# Create common web directories
+sudo mkdir -p /var/www/example.com/html/{css,js,images,uploads}
+sudo chown -R ftpuser00:sftponly /var/www/example.com/html/
+sudo chmod -R 755 /var/www/example.com/html/
+```
+
+**Directory Structure:**
+```
+/var/www/example.com/          (root:root, 755) - Chroot directory
+├── html/                      (ftpuser00:sftponly, 755) - Writable area
+│   ├── css/
+│   ├── js/
+│   ├── images/
+│   └── uploads/
+```
 
 ---
 
-## **Step 4: Modify SSH Configuration**
+## SSH Daemon Configuration
 
-Edit the SSH daemon configuration file to set up the SFTP environment.
+### Step 6: Backup Current SSH Configuration
+
+```bash
+sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup.$(date +%Y%m%d)
+```
+
+### Step 7: Configure SSH for SFTP
+
+Edit the SSH daemon configuration:
 
 ```bash
 sudo nano /etc/ssh/sshd_config
 ```
 
-### **a. Disable Subsystem sftp (Optional)**
+#### Verify Internal SFTP Subsystem
 
-Ensure the following line is present (it usually is by default):
+Ensure this line exists (usually present by default):
 
 ```ssh
 Subsystem sftp internal-sftp
 ```
 
-### **b. Add Configuration for the SFTP Group**
+#### Add SFTP Group Configuration
 
-At the end of the file, add:
+Add the following at the end of the file:
 
 ```ssh
-Match Group sftpusers
+# SFTP-only users configuration
+Match Group sftponly
+    # Restrict to home directory
     ChrootDirectory %h
+    
+    # Force SFTP-only access
     ForceCommand internal-sftp
+    
+    # Disable potentially dangerous features
     AllowTCPForwarding no
     X11Forwarding no
+    AllowAgentForwarding no
+    
+    # Optional: Limit connections
+    MaxSessions 5
+    MaxStartups 3
+    
+    # Enhanced logging
+    LogLevel VERBOSE
 ```
 
-- **`Match Group sftpusers`**: Applies the following rules to users in the `sftpusers` group.
-- **`ChrootDirectory %h`**: Restricts users to their home directory.
-- **`ForceCommand internal-sftp`**: Forces the use of SFTP and disables shell access.
-- **`AllowTCPForwarding no`** and **`X11Forwarding no`**: Enhances security by disabling unnecessary features.
+**Configuration Explained:**
+- `ChrootDirectory %h`: Jails user to their home directory
+- `ForceCommand internal-sftp`: Only allows SFTP, no shell commands
+- `AllowTCPForwarding no`: Prevents port forwarding
+- `X11Forwarding no`: Disables X11 GUI forwarding
+- `AllowAgentForwarding no`: Prevents SSH agent forwarding
+- `MaxSessions/MaxStartups`: Limits concurrent connections
 
-### **c. Save and Exit**
+### Step 8: Validate SSH Configuration
 
-- Press `Ctrl + X`, then `Y`, and `Enter` to save the changes.
-
----
-
-## **Step 5: Restart the SSH Service**
-
-Apply the changes by restarting the SSH daemon.
+Test the configuration before applying:
 
 ```bash
+sudo sshd -t
+```
+
+If no errors are reported, the configuration is valid.
+
+### Step 9: Apply Configuration
+
+Restart the SSH service:
+
+```bash
+# For systemd systems (Ubuntu 16.04+, CentOS 7+)
 sudo systemctl restart sshd
+
+# For older systems
+sudo service ssh restart
 ```
 
----
-
-## **Step 6: Test the SFTP Connection**
-
-### **a. From a Local Machine**
-
-Use an SFTP client like **FileZilla**, **WinSCP**, or the command line `sftp` tool.
-
-#### **Using FileZilla**
-
-1. **Open FileZilla**.
-2. **Create a New Site**:
-   - **Host**: `example.com`
-   - **Port**: `22`
-   - **Protocol**: `SFTP - SSH File Transfer Protocol`
-   - **Logon Type**: `Normal`
-   - **User**: `ftpuser00`
-   - **Password**: *The password you set earlier*
-3. **Connect**.
-
-#### **Using Command Line**
+Verify the service is running:
 
 ```bash
-sftp ftpuser00@example.com
+sudo systemctl status sshd
 ```
 
-Enter the password when prompted.
+---
 
-### **b. Verify Access**
+## Testing and Validation
 
-- Upon successful connection, you should be in the root of the chroot directory, which appears as the root (`/`).
-- List the files and directories:
+### Step 10: Test SFTP Connection
 
-  ```bash
-  ls
-  ```
+#### Command Line Test
 
-  You should see the `html` directory.
+```bash
+# Test from another machine or local terminal
+sftp ftpuser00@your-server-ip
 
-- Navigate to the `html` directory:
+# After connecting, test basic commands:
+pwd          # Should show / (chroot root)
+ls           # Should show html directory
+cd html      # Navigate to writable area
+put test.txt # Upload a test file
+ls           # Verify file was uploaded
+quit         # Exit SFTP
+```
 
-  ```bash
-  cd html
-  ```
+#### FileZilla Configuration
 
-- You can now upload, download, and manage files within this directory.
+1. **Host**: `your-server-ip` or `example.com`
+2. **Protocol**: `SFTP - SSH File Transfer Protocol`
+3. **Port**: `22`
+4. **Logon Type**: `Normal`
+5. **User**: `ftpuser00`
+6. **Password**: Your set password
+
+#### WinSCP Configuration (Windows)
+
+1. **File Protocol**: `SFTP`
+2. **Host Name**: `your-server-ip`
+3. **Port**: `22`
+4. **User Name**: `ftpuser00`
+5. **Password**: Your set password
+
+### Step 11: Verify Security Restrictions
+
+Test that security measures are working:
+
+```bash
+# This should fail (no shell access)
+ssh ftpuser00@your-server-ip
+
+# SFTP should work but be restricted
+sftp ftpuser00@your-server-ip
+cd /etc    # Should fail - cannot escape chroot
+cd ../     # Should fail - cannot go above chroot
+```
 
 ---
 
-## **Step 7: Optional Security Enhancements**
+## Advanced Security
 
-### **a. Restrict SSH Access Further**
+### Step 12: Implement SSH Key Authentication (Recommended)
 
-If you want to ensure that only specific users can SSH into the server:
+For enhanced security, use SSH keys instead of passwords:
 
-- **Edit the SSH Configuration**:
+#### Generate SSH Key Pair (on client machine)
 
-  ```bash
-  sudo nano /etc/ssh/sshd_config
-  ```
+```bash
+ssh-keygen -t ed25519 -C "ftpuser00@example.com" -f ~/.ssh/ftpuser00_key
+```
 
-- **Add or Modify the `AllowUsers` Directive**:
+#### Install Public Key on Server
 
-  ```ssh
-  AllowUsers your_admin_user
-  ```
+```bash
+# Create .ssh directory in user's home
+sudo mkdir -p /var/www/example.com/.ssh
+sudo chmod 700 /var/www/example.com/.ssh
 
-  Replace `your_admin_user` with your administrative username.
+# Add public key
+sudo nano /var/www/example.com/.ssh/authorized_keys
+# Paste the public key content here
 
-- **Save and Restart SSH**:
+# Set proper ownership and permissions
+sudo chown -R ftpuser00:sftponly /var/www/example.com/.ssh
+sudo chmod 600 /var/www/example.com/.ssh/authorized_keys
+```
 
-  ```bash
-  sudo systemctl restart sshd
-  ```
+#### Disable Password Authentication (Optional)
 
-### **b. Use SSH Keys Instead of Passwords**
+In `/etc/ssh/sshd_config`, add to the Match Group section:
 
-For enhanced security, you can set up SSH key authentication for administrative users and disable password authentication.
+```ssh
+Match Group sftponly
+    # ... existing configuration ...
+    PasswordAuthentication no
+    PubkeyAuthentication yes
+```
 
----
+### Step 13: Configure Firewall
 
-## **Summary**
+Ensure SSH port is properly configured:
 
-- **User Creation**: Created `ftpuser00` with no shell access, assigned to `sftpusers`.
-- **Permissions**: Set strict permissions on `/var/www/example.com` and appropriate ownership on `/html`.
-- **SSH Configuration**: Modified `sshd_config` to chroot SFTP users to their home directories.
-- **Testing**: Confirmed SFTP access is restricted to the intended directory.
+```bash
+# For UFW (Ubuntu)
+sudo ufw allow OpenSSH
+sudo ufw enable
 
----
+# For firewalld (CentOS/RHEL)
+sudo firewall-cmd --permanent --add-service=ssh
+sudo firewall-cmd --reload
 
-## **Adding More SFTP Users**
+# For iptables
+sudo iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+```
 
-To add more users with similar access:
+### Step 14: Set Up Log Monitoring
 
-1. **Create the User**:
+Monitor SFTP access in system logs:
 
-   ```bash
-   sudo useradd -m -d /path/to/chroot -G sftpusers -s /usr/sbin/nologin username
-   ```
+```bash
+# Monitor real-time SFTP connections
+sudo tail -f /var/log/auth.log | grep sftp
 
-2. **Set the User's Password**:
-
-   ```bash
-   sudo passwd username
-   ```
-
-3. **Configure Directory Permissions**:
-
-   - Set the chroot directory to be owned by `root:root` with `755` permissions.
-   - Assign ownership of subdirectories to the new user.
-
-4. **Ensure SSH Configuration Matches**:
-
-   - No changes needed if they are part of the `sftpusers` group.
-
----
-
-## **Notes and Best Practices**
-
-- **Chroot Directory Ownership**: The chroot directory must be owned by `root` and not writable by any other user for security reasons.
-- **Subdirectories**: Users can have write permissions within subdirectories they own.
-- **Security**: Always use SFTP over FTP, as FTP transmits data in plaintext, including passwords.
-- **Firewall Settings**: Ensure that port `22` (SSH) is open if you have a firewall configured.
-
-  ```bash
-  sudo ufw allow OpenSSH
-  ```
-
-- **Monitoring**: Regularly check `/var/log/auth.log` for any suspicious login attempts.
+# Check for failed login attempts
+sudo grep "Failed password" /var/log/auth.log | tail -10
+```
 
 ---
 
-## **Troubleshooting**
+## Troubleshooting
 
-- **Permission Denied Errors**: Check directory ownership and permissions. The chroot directory must be owned by `root:root` with `755` permissions.
-- **Cannot Access Subdirectories**: Ensure the user owns the subdirectories and has the necessary permissions.
-- **SSH Service Fails to Restart**: If there are syntax errors in `sshd_config`, the SSH service will fail to restart. Use `sudo sshd -t` to test the configuration before restarting.
+### Common Issues and Solutions
+
+#### Issue: "Permission denied" on connection
+
+**Possible Causes:**
+- Incorrect chroot directory ownership
+- Wrong permissions on chroot directory
+- User not in correct group
+
+**Solution:**
+```bash
+# Verify and fix chroot ownership
+sudo chown root:root /var/www/example.com
+sudo chmod 755 /var/www/example.com
+
+# Verify user group membership
+groups ftpuser00
+```
+
+#### Issue: "This service allows sftp connections only"
+
+**Cause:** User trying to SSH instead of SFTP (this is expected behavior)
+
+**Solution:** Use SFTP client instead of SSH
+
+#### Issue: SSH service fails to restart
+
+**Cause:** Syntax error in sshd_config
+
+**Solution:**
+```bash
+# Test configuration
+sudo sshd -t
+
+# Restore backup if needed
+sudo cp /etc/ssh/sshd_config.backup.* /etc/ssh/sshd_config
+```
+
+#### Issue: Cannot write files in SFTP
+
+**Possible Causes:**
+- Incorrect ownership of target directory
+- Insufficient permissions
+- Disk space full
+
+**Solution:**
+```bash
+# Check ownership and permissions
+ls -la /var/www/example.com/
+
+# Fix ownership if needed
+sudo chown ftpuser00:sftponly /var/www/example.com/html
+
+# Check disk space
+df -h
+```
+
+### Debug Mode
+
+Enable debug mode for detailed troubleshooting:
+
+```bash
+# Run SSH daemon in debug mode (temporary)
+sudo /usr/sbin/sshd -d -p 2222
+
+# Connect using debug port
+sftp -P 2222 ftpuser00@localhost
+```
 
 ---
 
-## **Next Steps**
+## Maintenance
 
-- **Regular Updates**: Keep your server updated.
+### Adding Additional Users
 
-  ```bash
-  sudo apt update && sudo apt upgrade -y
-  ```
+To add more SFTP users with similar access:
 
-- **Backups**: Regularly back up your website files and configurations.
-- **Security Audits**: Periodically review user access and SSH configurations.
-- **Documentation**: Keep a record of users and permissions for future reference.
+```bash
+# Create new user
+sudo useradd -m -d /var/www/newsite.com -G sftponly -s /usr/sbin/nologin ftpuser01
+
+# Set password
+sudo passwd ftpuser01
+
+# Configure directories
+sudo chown root:root /var/www/newsite.com
+sudo chmod 755 /var/www/newsite.com
+sudo mkdir -p /var/www/newsite.com/html
+sudo chown ftpuser01:sftponly /var/www/newsite.com/html
+sudo chmod 755 /var/www/newsite.com/html
+```
+
+### User Management Commands
+
+```bash
+# List all SFTP users
+getent group sftponly
+
+# Remove SFTP user
+sudo userdel -r ftpuser00
+
+# Disable user temporarily
+sudo usermod -L ftpuser00
+
+# Enable user
+sudo usermod -U ftpuser00
+
+# Change user's directory
+sudo usermod -d /var/www/newpath ftpuser00
+```
+
+### Regular Security Checks
+
+#### Monthly Tasks:
+- Review `/var/log/auth.log` for suspicious activity
+- Update system packages: `sudo apt update && sudo apt upgrade`
+- Check for unused SFTP accounts
+- Verify directory permissions haven't changed
+
+#### Quarterly Tasks:
+- Rotate SSH host keys if required
+- Review and update user access requirements
+- Test backup and restore procedures
+- Update passwords or SSH keys
+
+### Monitoring Script
+
+Create a simple monitoring script:
+
+```bash
+#!/bin/bash
+# /usr/local/bin/sftp-monitor.sh
+
+echo "SFTP Users Status Report - $(date)"
+echo "=================================="
+
+echo "Active SFTP users:"
+getent group sftponly | cut -d: -f4 | tr ',' '\n'
+
+echo -e "\nRecent SFTP connections:"
+grep "sftp-server" /var/log/auth.log | tail -5
+
+echo -e "\nDisk usage for SFTP directories:"
+du -sh /var/www/*/html 2>/dev/null
+
+echo -e "\nSSH service status:"
+systemctl is-active sshd
+```
+
+Make it executable and run monthly:
+
+```bash
+sudo chmod +x /usr/local/bin/sftp-monitor.sh
+sudo crontab -e
+# Add: 0 9 1 * * /usr/local/bin/sftp-monitor.sh | mail -s "SFTP Status" admin@example.com
+```
 
 ---
